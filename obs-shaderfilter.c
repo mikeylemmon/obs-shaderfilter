@@ -23,6 +23,8 @@
 
 #define nullptr ((void *)0)
 
+static char *STR_BACKBUFFER = "<Backbuffer>";
+
 static const char *effect_template_begin = "\
 uniform float4x4 ViewProj;\n\
 uniform texture2d image;\n\
@@ -71,10 +73,20 @@ float3 srgb_nonlinear_to_linear(float3 v)\n\
 }\n\
 \n";
 
-static const char *effect_template_default_image_shader = "\n\
+static const char *effect_template_default_image_shader = "\
+uniform texture2d image2;\n\
+uniform float fade<\n\
+    string widget_type = \"slider\";\n\
+    float minimum = 0;\n\
+    float maximum = 1;\n\
+    float step = 0.0001;\n\
+> = 0.9;\n\
+\n\
 float4 mainImage(VertData v_in) : TARGET\n\
 {\n\
-	return image.Sample(textureSampler, v_in.uv);\n\
+	float4 aa = image.Sample(textureSampler, v_in.uv);\n\
+	float4 bb = image2.Sample(textureSampler, v_in.uv);\n\
+	return lerp(aa, bb, fade);\n\
 }\n\
 ";
 
@@ -153,6 +165,11 @@ struct shader_filter_data {
 	gs_texrender_t *input_texrender;
 	gs_texrender_t *output_texrender;
 	gs_eparam_t *param_output_image;
+
+	bool output_texrender_flip;
+	gs_texrender_t *output_texrender_a;
+	gs_texrender_t *output_texrender_b;
+	gs_texrender_t *backbuffer_texrender;
 
 	bool reload_effect;
 	struct dstr last_path;
@@ -579,6 +596,7 @@ static void *shader_filter_create(obs_data_t *settings, obs_source_t *source)
 	struct shader_filter_data *filter = bzalloc(sizeof(struct shader_filter_data));
 	filter->context = source;
 	filter->reload_effect = true;
+	filter->output_texrender_flip = true;
 
 	dstr_init(&filter->last_path);
 	dstr_copy(&filter->last_path, obs_data_get_string(settings, "shader_file_name"));
@@ -605,8 +623,10 @@ static void shader_filter_destroy(void *data)
 		gs_effect_destroy(filter->output_effect);
 	if (filter->input_texrender)
 		gs_texrender_destroy(filter->input_texrender);
-	if (filter->output_texrender)
-		gs_texrender_destroy(filter->output_texrender);
+	if (filter->output_texrender_a)
+		gs_texrender_destroy(filter->output_texrender_a);
+	if (filter->output_texrender_b)
+		gs_texrender_destroy(filter->output_texrender_b);
 
 	obs_leave_graphics();
 
@@ -2213,6 +2233,7 @@ static obs_properties_t *shader_filter_properties(void *data)
 				obs_enum_sources(add_source_to_list, p);
 				obs_enum_scenes(add_source_to_list, p);
 				obs_property_list_insert_string(p, 0, "", "");
+				obs_property_list_insert_string(p, 1, STR_BACKBUFFER, STR_BACKBUFFER);
 
 			} else if (widget_type != NULL && strcmp(widget_type, "file") == 0) {
 				obs_properties_add_path(group, param_name, display_name.array, OBS_PATH_FILE,
@@ -2226,6 +2247,7 @@ static obs_properties_t *shader_filter_properties(void *data)
 				obs_property_list_add_string(p, "", "");
 				obs_enum_sources(add_source_to_list, p);
 				obs_enum_scenes(add_source_to_list, p);
+				obs_property_list_insert_string(p, 1, STR_BACKBUFFER, STR_BACKBUFFER);
 				obs_properties_add_path(group, param_name, display_name.array, OBS_PATH_FILE,
 							shader_filter_texture_file_filter, NULL);
 			}
@@ -2391,6 +2413,8 @@ static void shader_filter_update(void *data, obs_data_t *settings)
 					param->image = NULL;
 				}
 				dstr_free(&param->path);
+			} else if (sn && strcmp(STR_BACKBUFFER, sn) == 0) {
+				param->value.string = STR_BACKBUFFER; // Special value for backbuffer
 			} else {
 				const char *path = default_value;
 				if (!obs_data_has_user_value(settings, param_name) && path && strlen(path)) {
@@ -2694,6 +2718,9 @@ void shader_filter_set_effect_params(struct shader_filter_data *filter)
 				gs_effect_set_texture(param->param, tex);
 			} else if (param->image) {
 				gs_effect_set_texture(param->param, param->image->texture);
+			} else if (strcmp(param->value.string, STR_BACKBUFFER) == 0) {
+				gs_texture_t *bb = gs_texrender_get_texture(filter->backbuffer_texrender);
+				gs_effect_set_texture(param->param, bb);
 			} else {
 				gs_effect_set_texture(param->param, NULL);
 			}
@@ -2715,7 +2742,16 @@ static void render_shader(struct shader_filter_data *filter)
 		return;
 	}
 
-	filter->output_texrender = create_or_reset_texrender(filter->output_texrender);
+	filter->output_texrender_a = create_or_reset_texrender(filter->output_texrender_a);
+	filter->output_texrender_b = create_or_reset_texrender(filter->output_texrender_b);
+	if (filter->output_texrender_flip) {
+		filter->output_texrender = filter->output_texrender_a;
+		filter->backbuffer_texrender = filter->output_texrender_b;
+	} else {
+		filter->output_texrender = filter->output_texrender_b;
+		filter->backbuffer_texrender = filter->output_texrender_a;
+	}
+	filter->output_texrender_flip = !filter->output_texrender_flip;
 
 	if (filter->param_image) {
 		gs_effect_set_texture(filter->param_image, texture);
@@ -2858,6 +2894,7 @@ static void *shader_transition_create(obs_data_t *settings, obs_source_t *source
 	filter->context = source;
 	filter->reload_effect = true;
 	filter->transition = true;
+	filter->output_texrender_flip = true;
 
 	dstr_init(&filter->last_path);
 	dstr_copy(&filter->last_path, obs_data_get_string(settings, "shader_file_name"));
