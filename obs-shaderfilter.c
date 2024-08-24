@@ -1416,52 +1416,52 @@ static void convert_if1(struct dstr *effect_text)
 	}
 }
 
-static void convert_define(struct dstr *effect_text)
-{
-	char *pos = strstr(effect_text->array, "#define ");
-	while (pos) {
-		size_t diff = pos - effect_text->array;
-		char *start = pos + 8;
-		while (*start == ' ' || *start == '\t')
-			start++;
-		char *end = start;
-		while (*end != ' ' && *end != '\t' && *end != '\n' && *end != 0)
-			end++;
-		char *t = strstr(start, "(");
-		if (t && t < end) {
-			// don't replace macro
-			pos = strstr(effect_text->array + diff + 8, "#define ");
-			continue;
-		}
-
-		struct dstr def_name = {0};
-		dstr_ncat(&def_name, start, end - start);
-
-		start = end;
-		while (*start == ' ' || *start == '\t')
-			start++;
-
-		end = start;
-		while (*end != '\n' && *end != 0 && (*end != '/' || *(end + 1) != '/'))
-			end++;
-
-		t = strstr(start, "(");
-		if (*start == '(' || (t && t < end)) {
-			struct dstr replacement = {0};
-			dstr_ncat(&replacement, start, end - start);
-
-			dstr_remove(effect_text, diff, end - (effect_text->array + diff));
-
-			dstr_replace(effect_text, def_name.array, replacement.array);
-
-			dstr_free(&replacement);
-			pos = strstr(effect_text->array + diff, "#define ");
-		} else {
-			pos = strstr(effect_text->array + diff + 8, "#define ");
-		}
-		dstr_free(&def_name);
-	}
-}
+//static void convert_define(struct dstr *effect_text)
+//{
+//	char *pos = strstr(effect_text->array, "#define ");
+//	while (pos) {
+//		size_t diff = pos - effect_text->array;
+//		char *start = pos + 8;
+//		while (*start == ' ' || *start == '\t')
+//			start++;
+//		char *end = start;
+//		while (*end != ' ' && *end != '\t' && *end != '\n' && *end != 0)
+//			end++;
+//		char *t = strstr(start, "(");
+//		if (t && t < end) {
+//			// don't replace macro
+//			pos = strstr(effect_text->array + diff + 8, "#define ");
+//			continue;
+//		}
+//
+//		struct dstr def_name = {0};
+//		dstr_ncat(&def_name, start, end - start);
+//
+//		start = end;
+//		while (*start == ' ' || *start == '\t')
+//			start++;
+//
+//		end = start;
+//		while (*end != '\n' && *end != 0 && (*end != '/' || *(end + 1) != '/'))
+//			end++;
+//
+//		t = strstr(start, "(");
+//		if (*start == '(' || (t && t < end)) {
+//			struct dstr replacement = {0};
+//			dstr_ncat(&replacement, start, end - start);
+//
+//			dstr_remove(effect_text, diff, end - (effect_text->array + diff));
+//
+//			dstr_replace(effect_text, def_name.array, replacement.array);
+//
+//			dstr_free(&replacement);
+//			pos = strstr(effect_text->array + diff, "#define ");
+//		} else {
+//			pos = strstr(effect_text->array + diff + 8, "#define ");
+//		}
+//		dstr_free(&def_name);
+//	}
+//}
 
 static void convert_return(struct dstr *effect_text, struct dstr *var_name, size_t main_diff)
 {
